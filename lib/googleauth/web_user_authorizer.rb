@@ -103,6 +103,20 @@ module Google
         redirect_uri
       end
 
+      def self.handle_auth_callback user_id, request
+        callback_state, redirect_uri = WebUserAuthorizer.extract_callback_state(
+          request
+        )
+        WebUserAuthorizer.validate_callback_state callback_state, request
+        credentials = Google::Auth::WebUserAuthorizer.default.get_and_store_credentials_from_code(
+          user_id:  user_id,
+          code:     callback_state[AUTH_CODE_KEY],
+          scope:    callback_state[SCOPE_KEY],
+          base_url: request.url
+        )
+        [credentials, redirect_uri]
+      end
+
       # Initialize the authorizer
       #
       # @param [Google::Auth::ClientID] client_id
@@ -191,21 +205,21 @@ module Google
       #  May raise an error if an authorization code is present in the session
       #  and exchange of the code fails
       def get_credentials user_id, request, scope = nil
-        if request.session.key? CALLBACK_STATE_KEY
-          # Note - in theory, no need to check required scope as this is
-          # expected to be called immediately after a return from authorization
-          state_json = request.session.delete CALLBACK_STATE_KEY
-          callback_state = MultiJson.load state_json
-          WebUserAuthorizer.validate_callback_state callback_state, request
-          get_and_store_credentials_from_code(
-            user_id:  user_id,
-            code:     callback_state[AUTH_CODE_KEY],
-            scope:    callback_state[SCOPE_KEY],
-            base_url: request.url
-          )
-        else
-          super user_id, scope
-        end
+        # if request.session.key? CALLBACK_STATE_KEY
+        #   # Note - in theory, no need to check required scope as this is
+        #   # expected to be called immediately after a return from authorization
+        #   state_json = request.session.delete CALLBACK_STATE_KEY
+        #   callback_state = MultiJson.load state_json
+        #   WebUserAuthorizer.validate_callback_state callback_state, request
+        #   get_and_store_credentials_from_code(
+        #     user_id:  user_id,
+        #     code:     callback_state[AUTH_CODE_KEY],
+        #     scope:    callback_state[SCOPE_KEY],
+        #     base_url: request.url
+        #   )
+        # else
+        super user_id, scope
+        # end
       end
 
       def self.extract_callback_state request
@@ -231,11 +245,14 @@ module Google
       # @param [Rack::Request] request
       #  Current request
       def self.validate_callback_state state, request
-        raise Signet::AuthorizationError, MISSING_AUTH_CODE_ERROR if state[AUTH_CODE_KEY].nil?
+        puts 'Made it to validate callback state'
+        # raise Signet::AuthorizationError, MISSING_AUTH_CODE_ERROR if state[AUTH_CODE_KEY].nil?
         if state[ERROR_CODE_KEY]
+          puts 'Made it to to ERROR CODE'
           raise Signet::AuthorizationError,
                 format(AUTHORIZATION_ERROR, state[ERROR_CODE_KEY])
         elsif request.session[XSRF_KEY] != state[SESSION_ID_KEY]
+          puts 'Made it to to INVALID_STATE_TOKEN_ERROR'
           raise Signet::AuthorizationError, INVALID_STATE_TOKEN_ERROR
         end
       end
